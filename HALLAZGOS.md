@@ -16,6 +16,9 @@ de hipótesis que requieran ejecución o fuentes externas.
 | H-AUTH-06 | auth | Resource combina validación, negocio, persistencia y armado de respuesta | Refactor | La ruta HTTP delega ahora la validación y orquestación de login a un servicio; el servicio usa `LegacyDatabase` para persistencia y arma el DTO de salida. | `auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:26-37`; `auth/src/main/java/com/bcp/workshop/auth/AuthService.java:21-50`; `auth/src/main/java/com/bcp/workshop/auth/LoginResponse.java:1-4` | media | Resuelto — separación HTTP/servicio/DTO con el comportamiento observado cubierto y JaCoCo al 100% de líneas en las clases modificadas. |
 | H-AUTH-07 | auth | Versiones de dependencias candidatas a revisión SCA | Sugerencia | El árbol efectivo confirmaba Quarkus `3.27.4` y Commons Text `1.9`. Commons Text 1.9 está entre las versiones afectadas por CVE-2022-42889 cuando se usa `StringSubstitutor` con entrada no confiable; auth solo usa `StringEscapeUtils.escapeHtml4`. | `auth/pom.xml:13,47-52`; `auth/src/main/java/com/bcp/workshop/auth/AuthService.java:42` | media | Resuelto — Commons Text actualizado a `1.15.0`; no se encontró uso de `StringSubstitutor` en auth. Quarkus se conserva en `3.27.4`, release LTS que incluye correcciones de seguridad. |
 | H-AUTH-08 | auth | Cobertura de pruebas de login inicialmente limitada al caso exitoso | Sugerencia | Se añadieron caracterizaciones para éxito, credenciales inválidas, validaciones, errores 500, password hash/migración, input con comilla, firma/claims/expiración JWT y CORS en perfiles local y producción. | `auth/src/test/java/com/bcp/workshop/auth/AuthResourceTest.java:68-85`; `auth/src/test/java/com/bcp/workshop/auth/ProductionCorsConfigurationTest.java:14-37` | baja | Resuelto — ambas configuraciones CORS se prueban por perfil: el origen aprobado recibe el header esperado y el otro se rechaza con 403 y sin `Access-Control-Allow-Origin`. |
+| H-AUTH-09 | auth | Siembra de cuentas de laboratorio sin restricción de perfil | Configuración | La siembra de cuentas fijas se controla mediante `auth.seed-lab-users`: habilitada en `dev` y `test`, deshabilitada por defecto y en `prod`. La inicialización no elimina cuentas existentes. | `auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:58-72`; `auth/src/main/resources/application.properties:11-14`; `auth/src/test/java/com/bcp/workshop/auth/DevelopmentSeedConfigurationTest.java:29-42`; `auth/src/test/java/com/bcp/workshop/auth/ProductionCorsConfigurationTest.java:33-45` | media | Resuelto — `python tools/lab.py test auth`: 44 pruebas, 0 fallos; cobertura de líneas de `LegacyDatabase`: 49/53 (92,5%). |
+| H-AUTH-10 | auth | Error de consulta de base de datos se interpreta como credenciales inválidas | Manejo de errores | `LegacyDatabase.findByCredentials()` captura `SQLException` y devuelve `null`; `AuthService.login()` trata `null` como credenciales inválidas. | `auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:71-90`; `auth/src/main/java/com/bcp/workshop/auth/AuthService.java:21-26`; `auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:34-41` | media | CANDIDATO — el error de persistencia podría responder como 401 en lugar de representar un fallo interno; confirmar el contrato esperado. |
+| H-AUTH-11 | auth | Origen CORS de producción fijado a localhost | Configuración | El perfil `prod` declara un único origen `https://localhost:8080`; la prueba de perfil productivo valida ese mismo origen, no uno de despliegue. | `auth/src/main/resources/application.properties:4-6`; `auth/src/test/java/com/bcp/workshop/auth/ProductionCorsConfigurationTest.java:16-26` | media | CANDIDATO — confirmar el origen real del navegador cliente antes de concluir incompatibilidad de despliegue. |
 
 Todos los candidatos de auth enumerados en `RETO.md` tienen correspondencia en
 código. Para H-AUTH-07, el árbol Maven confirmó las versiones efectivas y se
@@ -112,3 +115,35 @@ Evidencia: `auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:26-48`;
   `AuthResource`, 19/19 en `AuthService` y 2/2 en `LoginResponse`.
 - CodeQL y Dependency Review remotos no se ejecutaron. `docs/ENDPOINTS.md` y
   `docs/TESTING.md` siguen ausentes; no se crearon en este paso.
+
+## Candidatos de discovery auth
+
+Los siguientes hallazgos son candidatos basados en inspección de `auth/`.
+No representan aprobación, remediación ni verificación en un entorno de
+despliegue. Las pruebas existentes se ejecutaron con
+`python tools/lab.py test auth`: 42 tests, 0 fallos, 0 errores; este resultado
+no confirma el comportamiento de despliegue señalado en los candidatos.
+
+### Cuentas de laboratorio sembradas con credenciales fijas
+- Estado: Resuelto
+- Evidencia: `auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:58-72` consulta la configuración antes de sembrar; `auth/src/main/resources/application.properties:11-14` habilita `dev` y `test` y deshabilita `prod`; `auth/src/test/java/com/bcp/workshop/auth/DevelopmentSeedConfigurationTest.java:29-42` y `auth/src/test/java/com/bcp/workshop/auth/ProductionCorsConfigurationTest.java:33-45` validan ambos perfiles.
+- Impacto: si este código inicializa una base en un entorno no local, las cuentas de laboratorio podrían quedar disponibles con credenciales conocidas por quienes tengan acceso al código del taller.
+- Prioridad propuesta: media; depende de confirmar si la inicialización se usa fuera del laboratorio.
+- Contrato potencialmente afectado: autenticación de cuentas y roles de `POST /auth/login`.
+- Cómo validarlo: `python tools/lab.py test auth` pasó con 44 pruebas, 0 fallos y 0 errores. JaCoCo midió 49/53 líneas (92,5%) en `LegacyDatabase`. El test `dev` confirma la siembra; el test `prod` confirma cero cuentas nuevas. No se eliminan cuentas existentes.
+
+### Fallo de consulta presentado como credenciales inválidas
+- Estado: CANDIDATO
+- Evidencia: `auth/src/main/java/com/bcp/workshop/auth/LegacyDatabase.java:71-90` convierte `SQLException` en `null`; `auth/src/main/java/com/bcp/workshop/auth/AuthService.java:21-26` convierte `null` en `InvalidCredentialsException`; `auth/src/main/java/com/bcp/workshop/auth/AuthResource.java:34-41` responde 401 para esa excepción.
+- Impacto: una indisponibilidad o error de persistencia puede ser indistinguible para el cliente de credenciales incorrectas y producir un estado HTTP que no representa la causa.
+- Prioridad propuesta: media.
+- Contrato potencialmente afectado: status y cuerpo de error de `POST /auth/login` ante fallos de persistencia.
+- Cómo validarlo: provocar un fallo controlado de conexión a la base en una prueba aislada y observar status, cuerpo y logs; contrastar el resultado con el contrato acordado para errores internos.
+
+### Origen CORS de producción fijado a localhost
+- Estado: CANDIDATO
+- Evidencia: `auth/src/main/resources/application.properties:4-6` define los orígenes permitidos; `auth/src/test/java/com/bcp/workshop/auth/ProductionCorsConfigurationTest.java:16-26` prueba únicamente el origen `https://localhost:8080`.
+- Impacto: si el navegador cliente se sirve desde otro origen, el navegador bloquearía el acceso cross-origin al endpoint de autenticación en el perfil productivo.
+- Prioridad propuesta: media; el origen de despliegue no está documentado en esta evidencia.
+- Contrato potencialmente afectado: acceso desde navegador a `POST /auth/login` y preflight CORS en producción.
+- Cómo validarlo: confirmar el origen del frontend autorizado para el despliegue y probar desde ese origen la solicitud OPTIONS y el login en una instancia del perfil productivo.
