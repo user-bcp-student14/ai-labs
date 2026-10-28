@@ -1,0 +1,37 @@
+---
+name: nombre-de-la-skill
+description: 'Describe CUÁNDO usar esta skill (dispara el descubrimiento de Copilot). Ej: "Usa esta skill cuando el agente deba generar endpoints REST en Quarkus siguiendo los estándares de seguridad del equipo."'
+---
+
+<!--
+Instrucciones para completar esta plantilla:
+- name: minúsculas, guiones, debe coincidir con el nombre de la carpeta.
+- description: el campo más importante. Copilot decide si cargar la skill
+  según qué tan bien esta descripción matchea la tarea del usuario. Sé
+  específico sobre el CUÁNDO, no solo el QUÉ.
+- El cuerpo de abajo sigue el formato interno del catálogo. Bórralo si tu
+  skill es muy simple, pero mantenlo para skills que otros equipos reutilizarán.
+-->
+
+## Propósito
+<!-- Qué problema resuelve esta skill, en 1-2 frases. -->
+
+## Entradas
+<!-- Qué necesita recibir o tener disponible el agente para aplicar esta skill. -->
+
+## Salidas
+<!-- Qué debe producir o modificar el agente al aplicar esta skill. -->
+
+## Flujo
+<!-- Pasos concretos, numerados, que el agente debe seguir. -->
+1.
+2.
+3.
+
+## Constraints
+<!-- Qué NO debe hacer el agente. Reglas duras, no sugerencias. -->
+-
+
+## Adaptación
+<!-- Cómo debe ajustarse la skill según el contexto del repo (stack, cliente, entorno). -->
+-
