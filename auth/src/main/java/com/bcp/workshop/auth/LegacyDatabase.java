@@ -3,6 +3,7 @@ package com.bcp.workshop.auth;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -54,6 +55,9 @@ public class LegacyDatabase {
     @Inject
     PasswordHasher passwordHasher;
 
+    @ConfigProperty(name = "auth.seed-lab-users", defaultValue = "false")
+    boolean seedLabUsers;
+
     @PostConstruct
     void initialize() {
         try {
@@ -62,8 +66,10 @@ public class LegacyDatabase {
                  Statement statement = connection.createStatement()) {
                 statement.executeUpdate(CREATE_USERS_TABLE_SQL);
                 migratePlaintextPasswords(connection);
-                seedUser(connection, STUDENT_USERNAME, STUDENT_PASSWORD, STUDENT_DISPLAY_NAME, STUDENT_ROLE);
-                seedUser(connection, TRAINER_USERNAME, TRAINER_PASSWORD, TRAINER_DISPLAY_NAME, TRAINER_ROLE);
+                if (seedLabUsers) {
+                    seedUser(connection, STUDENT_USERNAME, STUDENT_PASSWORD, STUDENT_DISPLAY_NAME, STUDENT_ROLE);
+                    seedUser(connection, TRAINER_USERNAME, TRAINER_PASSWORD, TRAINER_DISPLAY_NAME, TRAINER_ROLE);
+                }
             }
         } catch (IOException | SQLException error) {
             throw new IllegalStateException("Unable to initialize authentication database", error);
