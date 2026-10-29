@@ -26,6 +26,7 @@ public class AuthDatabaseTestResource implements QuarkusTestResourceLifecycleMan
                  Statement statement = connection.createStatement()) {
                 statement.executeUpdate(
                         "CREATE TABLE IF NOT EXISTS legacy_users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT NOT NULL, display_name TEXT NOT NULL, role TEXT NOT NULL)");
+                statement.executeUpdate("DELETE FROM legacy_users");
                 try (PreparedStatement insert = connection.prepareStatement(
                         "INSERT OR REPLACE INTO legacy_users(username,password,display_name,role) VALUES (?, ?, ?, ?)")) {
                     insert.setString(1, QUOTED_USERNAME);
