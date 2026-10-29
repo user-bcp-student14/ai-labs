@@ -188,6 +188,27 @@ class AuthResourceTest {
     }
 
     @Test
+    void rejectsLegacyBase64Token() {
+        String legacyValue = "student|STUDENT|" + Instant.now().plusSeconds(3600).getEpochSecond()
+                + "|synthetic-legacy-test-secret";
+        String legacyToken = Base64.getEncoder().encodeToString(legacyValue.getBytes(StandardCharsets.UTF_8));
+
+        assertThrows(JwtTokenService.InvalidTokenException.class,
+                () -> tokenService.verify(legacyToken, Instant.now()));
+    }
+
+    @Test
+    void rejectsJwtSignedWithDifferentSecret() throws Exception {
+        String token = signTestJwt(
+                "{\"alg\":\"HS256\",\"typ\":\"JWT\"}",
+                validClaimsJson(),
+                "different-test-only-secret-at-least-32-bytes");
+
+        assertThrows(JwtTokenService.InvalidTokenException.class,
+                () -> tokenService.verify(token, Instant.now()));
+    }
+
+    @Test
     void rejectsInvalidJwtAlgorithm() throws Exception {
         String claims = validClaimsJson();
         String token = signTestJwt("{\"alg\":\"HS512\",\"typ\":\"JWT\"}", claims);
@@ -231,6 +252,54 @@ class AuthResourceTest {
         invalidService.secret = "too-short";
 
         assertThrows(IllegalStateException.class, invalidService::validateConfiguration);
+    }
+
+    @Test
+    void rejectsMissingTokenSecretConfiguration() {
+        JwtTokenService invalidService = new JwtTokenService();
+        invalidService.secret = null;
+
+        assertThrows(IllegalStateException.class, invalidService::validateConfiguration);
+    }
+
+    @Test
+    void loginDoesNotExposeSigningSecretInResponseOrLogs() {
+        String signingSecret = System.getenv("AUTH_TOKEN_SECRET");
+        assertTrue(signingSecret != null && !signingSecret.isBlank());
+
+        Logger authLogger = Logger.getLogger("com.bcp.workshop.auth");
+        List<LogRecord> logRecords = new ArrayList<>();
+        Handler testHandler = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                logRecords.add(record);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        authLogger.addHandler(testHandler);
+
+        String responseBody;
+        try {
+            responseBody = given()
+                    .contentType("application/json")
+                    .body("{\"username\":\"student\",\"password\":\"Workshop123!\"}")
+                    .when().post("/auth/login")
+                    .then()
+                    .statusCode(200)
+                    .extract().asString();
+        } finally {
+            authLogger.removeHandler(testHandler);
+        }
+
+        assertFalse(responseBody.contains(signingSecret));
+        assertFalse(logRecords.stream().anyMatch(record ->
+                record.getMessage().contains(signingSecret)
+                        || (record.getThrown() != null && record.getThrown().toString().contains(signingSecret))));
     }
 
     @Test
@@ -495,13 +564,17 @@ class AuthResourceTest {
     }
 
     private String signTestJwt(String headerJson, String claimsJson) throws GeneralSecurityException {
+        return signTestJwt(headerJson, claimsJson, System.getenv("AUTH_TOKEN_SECRET"));
+    }
+
+    private String signTestJwt(String headerJson, String claimsJson, String signingSecret)
+            throws GeneralSecurityException {
         Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
         String encodedHeader = encoder.encodeToString(headerJson.getBytes(StandardCharsets.UTF_8));
         String encodedClaims = encoder.encodeToString(claimsJson.getBytes(StandardCharsets.UTF_8));
         String signingInput = encodedHeader + "." + encodedClaims;
         Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(
-                System.getenv("AUTH_TOKEN_SECRET").getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        mac.init(new SecretKeySpec(signingSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         String signature = encoder.encodeToString(mac.doFinal(signingInput.getBytes(StandardCharsets.UTF_8)));
         return signingInput + "." + signature;
     }
